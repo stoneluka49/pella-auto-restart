@@ -179,13 +179,7 @@ async function restartServer(token, serverId) {
     body: text
   };
 }
-const result = await restartServer(token, server.id);
 
-if (!result.ok) {
-  report.push(`❌ ${account.email} ${server.id} 重启失败 (${result.status})`);
-} else {
-  report.push(`🔄 ${account.email} ${server.id} 已发送重启请求`);
-}
 // ===== 主逻辑 =====
 async function processAccount(account) {
   let report = [];
