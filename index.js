@@ -134,11 +134,21 @@ async function getServers(token) {
 
   const text = await res.text();
 
+  console.log("📦 server/list 原始返回:", text.slice(0, 300));
+
   if (text.startsWith("<!DOCTYPE")) {
-    throw new Error("server/list 被拦截");
+    throw new Error("server/list 被拦截（Cloudflare）");
   }
 
-  return JSON.parse(text);
+  const data = JSON.parse(text);
+
+  // 🔥 兼容不同结构
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data.data)) return data.data;
+  if (Array.isArray(data.servers)) return data.servers;
+
+  // ❗ 如果不是数组，直接报错
+  throw new Error("server/list 返回异常: " + text.slice(0, 200));
 }
 
 // ===== 启动 =====
