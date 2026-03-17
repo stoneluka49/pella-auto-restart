@@ -1,1 +1,28 @@
+name: Pella Auto Restart
 
+on:
+  repository_dispatch:
+    types: [pella_trigger]  # 匹配 Worker 中的 EVENT_TYPE
+  workflow_dispatch:        # 允许手动在 GitHub 页面点击运行
+
+jobs:
+  pella-task:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: |
+          pip install requests
+
+      - name: Run Pella Script
+        env:
+          ACCOUNT_JSON: ${{ secrets.ACCOUNT_JSON }} # 在 GitHub Secrets 中设置
+        run: |
+          python main.py # 运行你之前的 Python 脚本
