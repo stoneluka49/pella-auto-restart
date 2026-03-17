@@ -1,4 +1,5 @@
 import fetch from "node-fetch";
+import FormData from "form-data";
 
 // ===== 环境变量 =====
 const TG_BOT_TOKEN = process.env.TG_BOT_TOKEN;
@@ -23,12 +24,12 @@ async function sendTG(msg) {
 // ===== 登录 =====
 async function login(email, password) {
   const BASE = "https://clerk.pella.app/v1/client";
+
   const headers = {
     "Content-Type": "application/x-www-form-urlencoded",
     "Origin": "https://www.pella.app",
     "Referer": "https://www.pella.app/",
-    "User-Agent": "Mozilla/5.0",
-    "Accept": "*/*"
+    "User-Agent": "Mozilla/5.0"
   };
 
   console.log(`🔐 登录: ${email}`);
@@ -55,12 +56,12 @@ async function login(email, password) {
     throw new Error(JSON.stringify(data.errors));
   }
 
-  let token =
+  const token =
     data.client?.sessions?.[0]?.last_active_token?.jwt;
 
   if (!token) throw new Error("token获取失败");
 
-  console.log("✅ token OK 长度:", token.length);
+  console.log("✅ token OK:", token.slice(0, 20), "...");
 
   return { token };
 }
@@ -82,26 +83,48 @@ async function getServers(token) {
   return data.servers || [];
 }
 
-// ===== 操作请求（统一封装）=====
-async function doAction(url, token, serverId) {
-  const res = await fetch(url, {
+// ===== start（改成 form-data）=====
+async function startServer(token, serverId) {
+  const form = new FormData();
+  form.append("serverId", serverId);
+
+  const res = await fetch("https://api.pella.app/server/start", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      Origin: "https://www.pella.app"
+      Origin: "https://www.pella.app",
+      ...form.getHeaders()
     },
-    body: JSON.stringify({ serverId })
+    body: form
   });
 
   const text = await res.text();
 
-  console.log("📡 API返回:", url, text);
+  console.log("🟢 start返回:", text);
 
-  return {
-    ok: res.ok,
-    body: text
-  };
+  return res.ok;
+}
+
+// ===== restart（改成 form-data）=====
+async function restartServer(token, serverId) {
+  const form = new FormData();
+  form.append("serverId", serverId);
+
+  const res = await fetch("https://api.pella.app/server/redeploy", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Origin: "https://www.pella.app",
+      ...form.getHeaders()
+    },
+    body: form
+  });
+
+  const text = await res.text();
+
+  console.log("🔄 restart返回:", text);
+
+  return res.ok;
 }
 
 // ===== 主逻辑 =====
@@ -127,23 +150,25 @@ async function processAccount(account) {
 
         if (server.status === "OFFLINE") {
           action = "start";
-          await doAction("https://api.pella.app/server/start", token, server.id);
+          await startServer(token, server.id);
         } else {
           action = "restart";
-          await doAction("https://api.pella.app/server/redeploy", token, server.id);
+          await restartServer(token, server.id);
         }
 
         // ===== 等待执行 =====
-        console.log("⏳ 等待5秒...");
-        await new Promise(r => setTimeout(r, 5000));
+        console.log("⏳ 等待8秒...");
+        await new Promise(r => setTimeout(r, 8000));
 
-        // ===== 再查状态（关键）=====
+        // ===== 再查状态 =====
         const newServers = await getServers(token);
         const updated = newServers.find(s => s.id === server.id);
 
         console.log("🧪 操作后状态:", updated?.status);
 
-        if (updated?.status === server.status) {
+        if (!updated) {
+          report.push(`❌ ${account.email} ${server.id} 未找到`);
+        } else if (updated.status === server.status) {
           report.push(`⚠️ ${account.email} ${server.id} ${action}无变化`);
         } else {
           report.push(`✅ ${account.email} ${server.id} ${action}成功`);
