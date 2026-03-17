@@ -1,1 +1,28 @@
+name: Pella Automation Task
 
+on:
+  repository_dispatch:
+    types: [pella_trigger]  # 对应 CF Worker 发送的 event_type
+  workflow_dispatch:        # 支持在 GitHub 页面上手动点击运行
+
+jobs:
+  execute-pella:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: pip install requests
+
+      - name: Run Maintenance Script
+        env:
+          ACCOUNT_JSON: ${{ secrets.ACCOUNT_JSON }}
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}  # 新增
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}      # 新增
+        run: python main.py
