@@ -1,1 +1,29 @@
+name: Pella Auto
 
+on:
+  #schedule:
+   # - cron: "*/30 * * * *"   # 每30分钟
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 拉代码
+        uses: actions/checkout@v4
+
+      - name: 🟢 Node环境
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 📦 安装依赖
+        run: npm install
+
+      - name: 🚀 运行
+        run: node index.js
+        env:
+          ACCOUNT_JSON: ${{ secrets.ACCOUNT_JSON }}
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
