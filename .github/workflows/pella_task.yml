@@ -1,32 +1,26 @@
-name: Pella UI Automation
+name: Pella Auto
 
-on:
-  repository_dispatch:
-    types: [pella_trigger]
-  workflow_dispatch:
+workflow_dispatch:
 
 jobs:
-  pella-click:
+  run:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout
+      - name: 📥 拉代码
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - name: 🟢 Node环境
+        uses: actions/setup-node@v4
         with:
-          python-version: '3.10'
+          node-version: 20
 
-      # --- 关键修改部分开始 ---
-      - name: Install Dependencies
-        run: |
-          pip install playwright requests
-          playwright install chromium
-      # --- 关键修改部分结束 ---
+      - name: 📦 安装依赖
+        run: npm install
 
-      - name: Run Script
+      - name: 🚀 运行
+        run: node index.js
         env:
           ACCOUNT_JSON: ${{ secrets.ACCOUNT_JSON }}
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-        run: python main.py
