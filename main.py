@@ -1,5 +1,4 @@
 import os
-import json
 import asyncio
 from playwright.async_api import async_playwright
 import requests
@@ -35,31 +34,35 @@ async def solve_pella():
                 print(f"🚀 正在登录: {acc['email']}")
                 await page.goto("https://pella.app/login", wait_until="networkidle", timeout=60000)
                 
-                # --- 第一步：输入邮箱并点击下一步 ---
-                email_input = page.get_by_label("Email address")
-                await email_input.wait_for(state="visible", timeout=30000)
-                await email_input.fill(acc['email'])
+                # --- 第一步：输入邮箱 ---
+                await page.get_by_label("Email address").fill(acc['email'])
+                await page.locator('button.cl-formButtonPrimary').click()
                 
-                # 使用类名锁定主按钮，避开 Google 登录按钮
-                continue_btn = page.locator('button.cl-formButtonPrimary')
-                await continue_btn.click()
-                
-                # --- 第二步：输入密码并提交 ---
-                print("  等待密码输入框...")
-                # 对应你截图中 Password 下方的输入框
+                # --- 第二步：输入密码 ---
                 pwd_input = page.locator('input[name="password"]')
                 await pwd_input.wait_for(state="visible", timeout=20000)
                 await pwd_input.fill(acc['password'])
+                await page.locator('button.cl-formButtonPrimary').click()
                 
-                # 再次点击主提交按钮进入 Dashboard
-                await continue_btn.click()
+                # --- 第三步：处理项目列表 (针对你最新截图的修改) ---
+                print("  正在进入项目列表...")
+                await page.wait_for_url("**/dashboard**", timeout=45000)
+                await asyncio.sleep(8) # 等待列表加载
                 
-                # --- 第三步：Dashboard 自动化点击 ---
-                print("  正在跳转 Dashboard...")
-                await page.wait_for_url("**/dashboard**", timeout=40000)
-                await asyncio.sleep(10) # 给予充足的列表渲染时间
+                # 定位 "Your Projects" 下的项目卡片并点击
+                # 优先级：寻找包含 "Unnamed" 或 "Server hosted" 字样的卡片
+                project_card = page.locator('div:has-text("Your Projects") ~ div >> div').first
+                if await project_card.is_visible():
+                    print("  点击进入项目详情...")
+                    await project_card.click()
+                else:
+                    # 备选方案：直接点击页面上第一个看起来像卡片的 div
+                    await page.click('div[class*="cursor-pointer"]')
 
-                # 查找 START 或 RESTART 按钮并点击
+                # --- 第四步：服务器管理页点击 ---
+                await asyncio.sleep(8) # 等待管理页加载
+                print("  正在执行启动/维护操作...")
+                
                 buttons = page.get_by_role("button")
                 btn_count = await buttons.count()
                 clicked = 0
@@ -67,17 +70,18 @@ async def solve_pella():
                 for i in range(btn_count):
                     btn = buttons.nth(i)
                     text = await btn.inner_text()
+                    # 匹配 START, RESTART, 或图片中显示的启动逻辑
                     if any(x in text.upper() for x in ["START", "RESTART"]):
-                        print(f"  执行维护操作: {text}")
+                        print(f"  点击按钮: {text}")
                         await btn.click()
                         clicked += 1
                         await asyncio.sleep(5)
 
-                report.append(f"👤 {acc['email']}: ✅ 已点击 {clicked} 个服务")
+                report.append(f"👤 {acc['email']}: ✅ 成功进入项目并点击 {clicked} 次")
             
             except Exception as e:
-                print(f"❌ {acc['email']} 操作失败: {str(e)}")
-                report.append(f"👤 {acc['email']}: ❌ 失败")
+                print(f"❌ {acc['email']} 失败: {str(e)}")
+                report.append(f"👤 {acc['email']}: ❌ 失败 (可能卡在项目选择页)")
             finally:
                 await page.close()
 
