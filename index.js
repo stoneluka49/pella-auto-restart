@@ -107,7 +107,7 @@ async function login(email, password) {
   return { token, sessionId, clientCookie };
 }
 
-const { token } = await login(email, password);
+
 
 // ===== 获取服务器 =====
 async function getServers(token) {
@@ -184,9 +184,12 @@ async function processAccount(account) {
 
 // ===== 入口 =====
 (async () => {
-  const accounts = ACCOUNT_JSON.split("\n").map(line => {
+  const accounts = ACCOUNT_JSON
+  .split("\n")
+  .filter(line => line.includes("-----"))
+  .map(line => {
     const [email, password] = line.split("-----");
-    return { email, password };
+    return { email: email.trim(), password: password.trim() };
   });
 
   let finalReport = [];
