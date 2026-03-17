@@ -1,6 +1,6 @@
 import fetch from "node-fetch";
 
-// ===== 配置 =====
+// ===== 环境变量 =====
 const TG_BOT_TOKEN = process.env.TG_BOT_TOKEN;
 const TG_CHAT_ID = process.env.TG_CHAT_ID;
 const ACCOUNT_JSON = process.env.ACCOUNT_JSON;
@@ -20,12 +20,13 @@ async function sendTG(msg) {
   });
 }
 
+// ===== 登录（增强调试版）=====
 async function login(email, password) {
   const BASE = "https://clerk.pella.app/v1/client";
   const API_VERSION = "2025-11-10";
   const JS_VERSION = "5.125.3";
 
-  const commonHeaders = {
+  const headers = {
     "Content-Type": "application/x-www-form-urlencoded",
     "Origin": "https://www.pella.app",
     "Referer": "https://www.pella.app/",
@@ -33,12 +34,13 @@ async function login(email, password) {
     "Accept": "*/*"
   };
 
-  // ===== 1. 登录 =====
+  console.log(`🔐 正在登录: ${email}`);
+
   const res = await fetch(
     `${BASE}/sign_ins?__clerk_api_version=${API_VERSION}&_clerk_js_version=${JS_VERSION}`,
     {
       method: "POST",
-      headers: commonHeaders,
+      headers,
       body: new URLSearchParams({
         identifier: email,
         password: password,
@@ -47,11 +49,20 @@ async function login(email, password) {
     }
   );
 
-  if (!res.ok) {
-    throw new Error("登录失败");
+  const text = await res.text();
+
+  // 🔥 防 Cloudflare / HTML 返回
+  if (text.startsWith("<!DOCTYPE")) {
+    throw new Error("被 Cloudflare 拦截（返回 HTML）");
   }
 
-  const data = await res.json();
+  const data = JSON.parse(text);
+
+  console.log("📦 登录返回:", JSON.stringify(data).slice(0, 300));
+
+  if (data.errors) {
+    throw new Error("登录失败: " + JSON.stringify(data.errors));
+  }
 
   let sessionId =
     data.response?.created_session_id ||
@@ -63,40 +74,44 @@ async function login(email, password) {
   const cookies = res.headers.get("set-cookie") || "";
   const clientCookie = cookies.match(/__client=([^;]+)/)?.[1];
 
-  // ===== 2. 如果没 token → touch =====
+  // ===== touch =====
   if (!token && sessionId) {
-    const touch = await fetch(
+    console.log("🔄 尝试 touch 获取 token");
+
+    const touchRes = await fetch(
       `${BASE}/sessions/${sessionId}/touch?__clerk_api_version=${API_VERSION}&_clerk_js_version=${JS_VERSION}`,
       {
         method: "POST",
         headers: {
-          ...commonHeaders,
+          ...headers,
           "Cookie": clientCookie ? `__client=${clientCookie}` : ""
         }
       }
     );
 
-    const t = await touch.json();
+    const touchData = await touchRes.json();
 
     token =
-      t.sessions?.[0]?.last_active_token?.jwt ||
-      t.last_active_token?.jwt;
+      touchData.sessions?.[0]?.last_active_token?.jwt ||
+      touchData.last_active_token?.jwt;
   }
 
-  // ===== 3. 再兜底 tokens =====
+  // ===== tokens =====
   if (!token && sessionId) {
-    const tk = await fetch(
+    console.log("🔄 尝试 tokens 获取 token");
+
+    const tkRes = await fetch(
       `${BASE}/sessions/${sessionId}/tokens?__clerk_api_version=${API_VERSION}&_clerk_js_version=${JS_VERSION}`,
       {
         method: "POST",
         headers: {
-          ...commonHeaders,
+          ...headers,
           "Cookie": clientCookie ? `__client=${clientCookie}` : ""
         }
       }
     );
 
-    const tkData = await tk.json();
+    const tkData = await tkRes.json();
     token = tkData.jwt;
   }
 
@@ -104,10 +119,10 @@ async function login(email, password) {
     throw new Error("获取 token 失败");
   }
 
-  return { token, sessionId, clientCookie };
+  console.log("✅ token 获取成功");
+
+  return { token };
 }
-
-
 
 // ===== 获取服务器 =====
 async function getServers(token) {
@@ -117,7 +132,13 @@ async function getServers(token) {
     }
   });
 
-  return await res.json();
+  const text = await res.text();
+
+  if (text.startsWith("<!DOCTYPE")) {
+    throw new Error("server/list 被拦截");
+  }
+
+  return JSON.parse(text);
 }
 
 // ===== 启动 =====
@@ -151,15 +172,18 @@ async function processAccount(account) {
   let report = [];
 
   try {
-    const auth = await login(account.email, account.password);
+    console.log("📧 账号:", account.email);
 
-    if (!auth.token) throw new Error("登录失败");
+    const { token } = await login(account.email, account.password);
 
-    const token = auth.token;
     const servers = await getServers(token);
+
+    console.log("📊 服务器数量:", servers.length);
 
     for (const server of servers) {
       try {
+        console.log("👉 处理:", server.id, server.status);
+
         if (server.status === "STOPPED") {
           await startServer(token, server.id);
           report.push(`🟢 ${account.email} 启动 ${server.id}`);
@@ -176,7 +200,8 @@ async function processAccount(account) {
     }
 
   } catch (err) {
-    report.push(`❌ ${account.email} 登录失败`);
+    console.log("❌ 错误:", err.message);
+    report.push(`❌ ${account.email} 失败: ${err.message}`);
   }
 
   return report;
@@ -185,12 +210,15 @@ async function processAccount(account) {
 // ===== 入口 =====
 (async () => {
   const accounts = ACCOUNT_JSON
-  .split("\n")
-  .filter(line => line.includes("-----"))
-  .map(line => {
-    const [email, password] = line.split("-----");
-    return { email: email.trim(), password: password.trim() };
-  });
+    .split("\n")
+    .filter(line => line.includes("-----"))
+    .map(line => {
+      const [email, password] = line.split("-----");
+      return {
+        email: email.trim(),
+        password: password.trim()
+      };
+    });
 
   let finalReport = [];
 
@@ -199,5 +227,8 @@ async function processAccount(account) {
     finalReport.push(...res);
   }
 
-  await sendTG("🔔 <b>Pella 自动化报告</b>\n\n" + finalReport.join("\n"));
+  const msg = "🔔 <b>Pella 自动化报告</b>\n\n" + finalReport.join("\n");
+
+  console.log(msg);
+  await sendTG(msg);
 })();
