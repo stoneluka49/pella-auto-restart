@@ -4,7 +4,6 @@ import asyncio
 from playwright.async_api import async_playwright
 import requests
 
-# TG 通知函数
 def send_tg(msg):
     token = os.getenv('TG_BOT_TOKEN')
     chat_id = os.getenv('TG_CHAT_ID')
@@ -12,72 +11,69 @@ def send_tg(msg):
         url = f"https://api.telegram.org/bot{token}/sendMessage"
         requests.post(url, json={"chat_id": chat_id, "text": msg, "parse_mode": "HTML"})
 
-async def run_pella():
-    # 解析账号
-    account_raw = os.getenv('ACCOUNT_JSON', '[]')
-    if account_raw.startswith('['):
-        accounts = json.loads(account_raw)
-    else:
-        accounts = []
-        for line in account_raw.strip().split('\n'):
-            if '-----' in line:
-                u, p = line.split('-----')
-                accounts.append({"email": u.strip(), "password": p.strip()})
+async def solve_pella():
+    account_raw = os.getenv('ACCOUNT_JSON', '')
+    accounts = []
+    for line in account_raw.strip().split('\n'):
+        if '-----' in line:
+            u, p = line.split('-----')
+            accounts.append({"email": u.strip(), "password": p.strip()})
+    
+    if not accounts: return print("❌ 未配置账号")
 
     async with async_playwright() as p:
-        # 启动浏览器 (无头模式)
         browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(viewport={'width': 1280, 'height': 800})
+        # 模拟真实浏览器特征
+        context = await browser.new_context(
+            viewport={'width': 1280, 'height': 800},
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        )
         
         report = []
-
         for acc in accounts:
             page = await context.new_page()
-            email = acc['email']
-            pwd = acc['password']
-            
             try:
-                print(f"正在登录账号: {email}")
-                # 1. 访问登录页面
+                print(f"🚀 正在登录: {acc['email']}")
                 await page.goto("https://pella.app/login", wait_until="networkidle")
                 
-                # 2. 模拟输入 (根据 Pella 登录框的选择器，通常是 identifier 和 password)
-                await page.fill('input[name="identifier"]', email)
-                await page.fill('input[name="password"]', pwd)
-                await page.click('button[type="submit"]')
+                # --- 第一步：输入邮箱 ---
+                # 对应你截图中红框的 Email address 输入框
+                await page.fill('input[type="email"]', acc['email'])
+                # 点击 Continue 按钮
+                await page.click('button:has-text("Continue")')
                 
-                # 等待进入控制台
-                await page.wait_for_url("**/dashboard**", timeout=10000)
-                await asyncio.sleep(5) # 等待列表加载
+                # --- 第二步：输入密码 ---
+                # 等待密码输入框出现
+                await page.wait_for_selector('input[type="password"]', timeout=15000)
+                await page.fill('input[type="password"]', acc['password'])
+                # 再次点击 Continue 登录
+                await page.click('button:has-text("Continue")')
                 
-                # 3. 查找所有 RESTART / REDEPLOY 按钮
-                # 根据你之前的截图，按钮文字通常是 RESTART
-                buttons = await page.query_selector_all('button:has-text("RESTART")')
+                # --- 第三步：进入面板并点击 ---
+                await page.wait_for_url("**/dashboard**", timeout=30000)
+                await asyncio.sleep(8) # 等待列表完全加载
                 
-                if not buttons:
-                    # 如果没找到按钮，可能是离线状态显示的是 START
-                    buttons = await page.query_selector_all('button:has-text("START")')
+                # 查找所有可用按钮
+                all_buttons = await page.get_by_role("button").all()
+                clicked = 0
+                for btn in all_buttons:
+                    txt = (await btn.inner_text()).upper()
+                    if "START" in txt or "RESTART" in txt:
+                        print(f"  点击按钮: {txt}")
+                        await btn.click()
+                        clicked += 1
+                        await asyncio.sleep(3)
                 
-                click_count = 0
-                for btn in buttons:
-                    await btn.click()
-                    click_count += 1
-                    await asyncio.sleep(2) # 间隔点击
-                
-                report.append(f"👤 {email}: ✅ 成功点击 {click_count} 个按钮")
-                
+                report.append(f"👤 {acc['email']}: ✅ 已点击 {clicked} 个服务")
             except Exception as e:
-                print(f"账号 {email} 操作失败: {str(e)}")
-                report.append(f"👤 {email}: ❌ 失败: {str(e)[:50]}")
-            
-            await page.close()
+                print(f"操作失败: {e}")
+                report.append(f"👤 {acc['email']}: ❌ 失败 (界面可能已变动)")
+            finally:
+                await page.close()
 
         await browser.close()
-        
-        # 发送汇总通知
         if report:
-            msg = "🚀 <b>Pella 浏览器模拟维护完成</b>\n\n" + "\n".join(report)
-            send_tg(msg)
+            send_tg("🔔 <b>Pella 自动化执行报告</b>\n\n" + "\n".join(report))
 
 if __name__ == "__main__":
-    asyncio.run(run_pella())
+    asyncio.run(solve_pella())
