@@ -35,17 +35,15 @@ async def solve_pella():
                 print(f"🚀 正在打开登录页: {acc['email']}")
                 await page.goto("https://pella.app/login", wait_until="networkidle", timeout=60000)
                 
-                # --- 第一步：输入邮箱 ---
-                # 尝试多种定位方式，确保能找到输入框
+               # --- 第一步：输入邮箱 ---
                 email_input = page.get_by_label("Email address")
-                if await email_input.count() == 0:
-                    email_input = page.locator('input[type="email"]')
-                
                 await email_input.wait_for(state="visible", timeout=30000)
                 await email_input.fill(acc['email'])
                 
-                # 点击 Continue
-                await page.get_by_role("button", name="Continue").click()
+                # 精准定位：只点击那个带有表单提交属性的 Continue 按钮
+                # 排除掉 Google 登录等干扰项
+                continue_btn = page.locator('button.cl-formButtonPrimary:has-text("Continue")')
+                await continue_btn.click()
                 
                 # --- 第二步：输入密码 ---
                 print("  等待密码输入框...")
@@ -53,8 +51,8 @@ async def solve_pella():
                 await pwd_input.wait_for(state="visible", timeout=20000)
                 await pwd_input.fill(acc['password'])
                 
-                # 再次点击 Continue
-                await page.get_by_role("button", name="Continue").click()
+                # 再次精准点击登录按钮
+                await continue_btn.click()
                 
                 # --- 第三步：进入面板并点击 ---
                 print("  正在跳转 Dashboard...")
