@@ -12,7 +12,7 @@ async function sendTG(msg) {
 
   await fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage`, {
     method: "POST",
-    headers: {"Content-Type": "application/json"},
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       chat_id: TG_CHAT_ID,
       text: msg,
@@ -75,7 +75,6 @@ async function getServers(token) {
   });
 
   const text = await res.text();
-
   console.log("📦 server/list:", text.slice(0, 200));
 
   const data = JSON.parse(text);
@@ -83,12 +82,10 @@ async function getServers(token) {
   return data.servers || [];
 }
 
-// ===== start（改成 form-data）=====
+// ===== 启动 =====
 async function startServer(token, serverId) {
   const form = new FormData();
-
-  // 🔥 同样是 id
-  form.append("id", serverId);
+  form.append("id", serverId); // 🔥 正确参数
 
   const res = await fetch("https://api.pella.app/server/start", {
     method: "POST",
@@ -101,19 +98,15 @@ async function startServer(token, serverId) {
   });
 
   const text = await res.text();
-
   console.log("🟢 start返回:", text);
 
   return res.ok;
 }
-// ===== restart（改成 form-data）=====
-import FormData from "form-data";
 
+// ===== 重启 =====
 async function restartServer(token, serverId) {
   const form = new FormData();
-
-  // 🔥 关键：必须是 id
-  form.append("id", serverId);
+  form.append("id", serverId); // 🔥 正确参数
 
   const res = await fetch("https://api.pella.app/server/redeploy", {
     method: "POST",
@@ -126,7 +119,6 @@ async function restartServer(token, serverId) {
   });
 
   const text = await res.text();
-
   console.log("🔄 restart返回:", text);
 
   return res.ok;
@@ -142,7 +134,7 @@ async function processAccount(account) {
 
     const { token } = await login(account.email, account.password);
 
-    let servers = await getServers(token);
+    const servers = await getServers(token);
 
     console.log("📊 服务器数量:", servers.length);
 
@@ -162,8 +154,8 @@ async function processAccount(account) {
         }
 
         // ===== 等待执行 =====
-        console.log("⏳ 等待8秒...");
-        await new Promise(r => setTimeout(r, 8000));
+        console.log("⏳ 等待15秒...");
+        await new Promise(r => setTimeout(r, 15000));
 
         // ===== 再查状态 =====
         const newServers = await getServers(token);
@@ -171,28 +163,26 @@ async function processAccount(account) {
 
         console.log("🧪 操作后状态:", updated?.status);
 
-       if (!updated) {
-       report.push(`❌ ${account.email} ${server.id} 未找到`);
-       } else if (
-        updated.status === "STARTING" ||
-        updated.status === "RUNNING"
-       ) {
-       report.push(`✅ ${account.email} ${server.id} 重启成功`);
-       } else {
-        report.push(`⚠️ ${account.email} ${server.id} 无变化`);
-        }else {
+        if (!updated) {
+          report.push(`❌ ${account.email} ${server.id} 未找到`);
+        } else if (
+          updated.status === "STARTING" ||
+          updated.status === "RUNNING"
+        ) {
           report.push(`✅ ${account.email} ${server.id} ${action}成功`);
+        } else {
+          report.push(`⚠️ ${account.email} ${server.id} 无变化`);
         }
 
       } catch (e) {
         console.log("❌ 操作异常:", e.message);
-        report.push(`❌ ${account.email} ${server.id} 失败`);
+        report.push(`❌ ${account.email} ${server.id} 操作失败`);
       }
     }
 
   } catch (err) {
     console.log("❌ 总错误:", err.message);
-    report.push(`❌ ${account.email} 失败: ${err.message}`);
+    report.push(`❌ ${account.email} 登录失败: ${err.message}`);
   }
 
   return report;
