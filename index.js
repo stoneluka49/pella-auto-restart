@@ -82,28 +82,7 @@ async function getServers(token) {
   return data.servers || [];
 }
 
-// ===== 启动 =====
-async function startServer(token, serverId) {
-  const form = new FormData();
-  form.append("id", serverId);
-
-  const res = await fetch("https://api.pella.app/server/start", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Origin: "https://www.pella.app",
-      ...form.getHeaders()
-    },
-    body: form
-  });
-
-  const text = await res.text();
-  console.log("🟢 start返回:", text);
-
-  return res.ok;
-}
-
-// ===== 重启 =====
+// ===== 重启（唯一操作）=====
 async function restartServer(token, serverId) {
   const form = new FormData();
   form.append("id", serverId);
@@ -143,15 +122,8 @@ async function processAccount(account) {
       console.log("   当前状态:", server.status);
 
       try {
-        let action;
-
-        if (server.status === "offline" || server.status === "OFFLINE") {
-          action = "启动";
-          await startServer(token, server.id);
-        } else {
-          action = "重启";
-          await restartServer(token, server.id);
-        }
+        // 🔥 统一使用 restart
+        await restartServer(token, server.id);
 
         // ===== 等待执行 =====
         console.log("⏳ 等待15秒...");
@@ -168,8 +140,13 @@ async function processAccount(account) {
 
         if (!updated) {
           resultText = "未找到";
+        } else if (
+          updated.status === "running" &&
+          server.status !== "running"
+        ) {
+          resultText = "启动成功";
         } else if (updated.status !== server.status) {
-          resultText = action + "成功";
+          resultText = "重启成功";
         } else {
           resultText = "无变化";
         }
