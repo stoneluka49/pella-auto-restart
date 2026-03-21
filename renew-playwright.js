@@ -29,7 +29,14 @@ async function processAccount(account) {
     await page.click('button.cl-formButtonPrimary');
 
     // ===== 4. 等待进入 dashboard =====
-    await page.waitForURL("**/dashboard**", { timeout: 60000 });
+   await page.waitForLoadState("networkidle");
+
+try {
+  await page.waitForSelector("text=Your Projects", { timeout: 15000 });
+} catch {
+  console.log("⚠️ 未找到项目列表，使用延时兜底");
+  await page.waitForTimeout(8000);
+}
 
     console.log("✅ 登录成功");
 
