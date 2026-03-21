@@ -2,7 +2,7 @@ name: Pella Renew
 
 on:
   schedule:
-    - cron: "0 */6 * * *"   # 每6小时跑一次
+    - cron: "0 */6 * * *"
   workflow_dispatch:
 
 jobs:
@@ -18,11 +18,15 @@ jobs:
         with:
           node-version: 20
 
-      - name: 📦 Install deps
-        run: |
-          npm install
-          npx playwright install --with-deps
+      # ✅ 安装依赖（关键）
+      - name: 📦 Install dependencies
+        run: npm install playwright
 
+      # ✅ 安装浏览器（关键中的关键）
+      - name: 🌐 Install browsers
+        run: npx playwright install --with-deps
+
+      # ✅ 运行脚本
       - name: 🚀 Run script
         run: node renew-playwright.js
         env:
