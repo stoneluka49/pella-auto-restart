@@ -7,17 +7,26 @@ const TG_CHAT_ID = process.env.TG_CHAT_ID;
 const ACCOUNT_JSON = process.env.ACCOUNT_JSON;
 
 // ===== TG发送图片 =====
+import FormData from "form-data";
+
 async function sendTGPhoto(buffer, caption) {
   if (!TG_BOT_TOKEN || !TG_CHAT_ID) return;
 
-  const formData = new FormData();
-  formData.append("chat_id", TG_CHAT_ID);
-  formData.append("caption", caption);
-  formData.append("photo", buffer, "screenshot.png");
+  const form = new FormData();
+
+  form.append("chat_id", TG_CHAT_ID);
+  form.append("caption", caption);
+
+  // ✅ 关键修复
+  form.append("photo", buffer, {
+    filename: "screenshot.png",
+    contentType: "image/png"
+  });
 
   await fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/sendPhoto`, {
     method: "POST",
-    body: formData
+    headers: form.getHeaders(),   // ✅ 必须加
+    body: form
   });
 }
 
