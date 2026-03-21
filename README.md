@@ -19,6 +19,8 @@ TG_BOT_TOKEN	Telegram 机器人的 Token
 TG_CHAT_ID	接收通知的 Telegram 会话 ID
 ACCOUNT_JSON	账号信息的 JSON 字符串
 GH_PAT	(可选) 具有 Actions 权限的个人访问令牌（用于远程触发）
+
+
 示例
 #ACCOUNT_JSON
 email1-----password1
