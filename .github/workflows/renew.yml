@@ -1,32 +1,28 @@
 name: Pella Login Screenshot
 
 on:
-  workflow_dispatch:   # 手动运行
+  workflow_dispatch:
   schedule:
-    - cron: "0 */6 * * *"   # 每6小时跑一次（可改）
+    - cron: "0 */6 * * *"
 
 jobs:
   run:
     runs-on: ubuntu-latest
 
     steps:
-      # ===== 拉代码 =====
       - name: 📥 Checkout
         uses: actions/checkout@v4
 
-      # ===== Node环境 =====
       - name: 🟢 Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      # ===== 安装依赖 =====
       - name: 📦 Install dependencies
         run: |
           npm install
           npx playwright install --with-deps
 
-      # ===== 执行脚本 =====
       - name: 🚀 Run Script
         run: node pella-auto.js
         env:
