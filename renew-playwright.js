@@ -75,54 +75,56 @@ async function processAccount(account) {
 
     await page.waitForTimeout(8000);
 
-    // ===== 查找 Claim 按钮 =====
-    const buttons = page.locator("button");
-    const count = await buttons.count();
+   // ===== 8. 查找 Claim 按钮 =====
+const claimButtons = page.locator('text=Claim 16 Hours');
 
-    for (let i = 0; i < count; i++) {
-      const btn = buttons.nth(i);
-      const text = await btn.innerText();
+const count = await claimButtons.count();
 
-      if (text.includes("Claim")) {
-        claimCount++;
+if (count === 0) {
+  console.log("⚠️ 没有可用广告");
 
-        console.log("👉 点击:", text);
-
-        try {
-          const [newPage] = await Promise.all([
-            context.waitForEvent("page"),
-            btn.click()
-          ]);
-
-          await newPage.waitForLoadState();
-          await newPage.waitForTimeout(8000);
-          await newPage.close();
-
-        } catch {
-          // fallback（有些不会开新页）
-          await btn.click();
-          await page.waitForTimeout(8000);
-        }
-      }
-    }
-
-    console.log("🎯 总点击:", claimCount);
-
-    // ===== TG 通知 =====
-    await sendTG(`✅ Pella完成
+  await sendTG(`⚠️ Pella无广告
 账号: ${account.email}
-点击Claim: ${claimCount}`);
+状态: 没有Claim按钮`);
 
-  } catch (e) {
-    console.log("❌ 错误:", e.message);
+  return;
+}
 
-    await sendTG(`❌ Pella失败
-账号: ${account.email}
-错误: ${e.message}`);
+console.log(`🎯 找到 ${count} 个 Claim 按钮`);
+
+let claimCount = 0;
+
+for (let i = 0; i < count; i++) {
+  const btn = claimButtons.nth(i);
+
+  console.log("👉 点击 Claim");
+
+  try {
+    const [newPage] = await Promise.all([
+      context.waitForEvent("page"),
+      btn.click()
+    ]);
+
+    await newPage.waitForLoadState();
+    await newPage.waitForTimeout(8000);
+    await newPage.close();
+
+  } catch {
+    // fallback（有些不会开新页面）
+    await btn.click();
+    await page.waitForTimeout(8000);
   }
 
-  await browser.close();
+  claimCount++;
 }
+
+console.log("🎯 实际点击:", claimCount);
+
+// ===== TG 通知 =====
+await sendTG(`✅ Pella完成
+账号: ${account.email}
+可用广告: ${count}
+成功点击: ${claimCount}`);
 
 // ===== 入口 =====
 (async () => {
