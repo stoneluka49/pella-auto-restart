@@ -1,4 +1,4 @@
-name: Pella Login Screenshot
+name: Pella Full Auto
 
 on:
   workflow_dispatch:
@@ -18,13 +18,12 @@ jobs:
         with:
           node-version: 20
 
-      - name: 📦 Install dependencies
+      - name: 📦 Install
         run: |
-          npm install playwright
-          npm install node-fetch form-data
+          npm install
           npx playwright install --with-deps
 
-      - name: 🚀 Run Script
+      - name: 🚀 Run
         run: node pella-auto.js
         env:
           ACCOUNT_JSON: ${{ secrets.ACCOUNT_JSON }}
