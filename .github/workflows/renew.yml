@@ -1,1 +1,29 @@
+name: Pella Renew
 
+on:
+  schedule:
+    - cron: "0 */6 * * *"   # 每6小时跑一次
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 📦 Install deps
+        run: |
+          npm install
+          npx playwright install --with-deps
+
+      - name: 🚀 Run script
+        run: node renew-playwright.js
+        env:
+          ACCOUNT_JSON: ${{ secrets.ACCOUNT_JSON }}
