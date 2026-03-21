@@ -1,8 +1,8 @@
-name: Pella Renew
+name: Pella Auto
 
 on:
   schedule:
-    - cron: "0 */6 * * *"
+    - cron: "0 */6 * * *"   # 每6小时
   workflow_dispatch:
 
 jobs:
@@ -10,24 +10,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 📥 Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: 🟢 Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
+      - run: npm install playwright node-fetch
+      - run: npx playwright install
 
-      # ✅ 安装依赖（关键）
-      - name: 📦 Install dependencies
-        run: npm install playwright
-
-      # ✅ 安装浏览器（关键中的关键）
-      - name: 🌐 Install browsers
-        run: npx playwright install --with-deps
-
-      # ✅ 运行脚本
-      - name: 🚀 Run script
-        run: node renew-playwright.js
+      - run: node pella-auto.js
         env:
-          ACCOUNT_JSON: ${{ secrets.ACCOUNT_JSON }}
+          ACCOUNT: ${{ secrets.ACCOUNT }}
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
