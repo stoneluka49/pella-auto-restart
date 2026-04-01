@@ -1,11 +1,11 @@
 name: Pella Auto Renew
 
 on:
-  workflow_dispatch: # 支持手动触发
-  repository_dispatch: # 支持 Cloudflare Workers 远程触发
+  workflow_dispatch:
+  repository_dispatch:
     types: [renew_task]
   schedule:
-    - cron: '15 */4 * * *' # 每 4 小时自动运行一次
+    - cron: '15 */4 * * *'
 
 jobs:
   renew:
@@ -14,6 +14,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Dependencies
+        run: npm install node-fetch@2 # 安装兼容性最好的 v2 版本
+
       - name: Run Renew Script
         shell: bash
         env:
@@ -21,18 +29,24 @@ jobs:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
         run: |
-          cat << 'EOF' > renew.js
+          # 创建为 .cjs 文件以支持 require
+          cat << 'EOF' > renew.cjs
           const fetch = require('node-fetch');
           const delay = (ms) => new Promise(r => setTimeout(r, ms));
 
           async function main() {
+            if (!process.env.ACCOUNT) {
+              console.error("错误: 未找到 ACCOUNT Secret");
+              return;
+            }
             const accounts = process.env.ACCOUNT.split('\n').filter(l => l.includes('-----'));
             const results = [];
 
             for (const line of accounts) {
               const [email, password] = line.split('-----').map(s => s.trim());
               try {
-                console.log(`开始处理: ${email}`);
+                console.log(`--- 正在处理账号: ${email} ---`);
+                
                 // 1. 登录
                 const loginRes = await fetch("https://clerk.pella.app/v1/client/sign_ins?__clerk_api_version=2025-11-10", {
                   method: "POST",
@@ -40,26 +54,33 @@ jobs:
                   body: new URLSearchParams({ identifier: email, password, strategy: "password" })
                 });
                 const loginData = await loginRes.json();
+                
+                if (loginData.errors) throw new Error("登录失败: " + loginData.errors[0].message);
                 const token = loginData.client.sessions[0].last_active_token.jwt;
 
                 // 2. 获取服务器
                 const serverRes = await fetch("https://api.pella.app/user/servers", {
                   headers: { "Authorization": `Bearer ${token}`, "Origin": "https://www.pella.app" }
                 });
-                const { servers } = await serverRes.json();
+                const serverData = await serverRes.json();
+                const servers = serverData.servers || [];
                 const reports = [];
 
                 for (const s of servers) {
-                  // 3. 刷新广告 (Action 环境可以大方等待)
+                  const beforeExp = s.expiry;
+                  console.log(`检查服务器: ${s.ip}, 当前到期: ${beforeExp}`);
+
+                  // 3. 刷新广告 (Action 环境可以稳定等待)
                   await fetch(`https://api.pella.app/server/renew/update?id=${s.id}`, {
                     method: "POST",
                     headers: { "Authorization": `Bearer ${token}`, "Origin": "https://www.pella.app" },
                     body: "{}"
                   });
-                  console.log(`等待广告生成...`);
-                  await delay(10000); // 稳健等待 10 秒
+                  
+                  console.log(`等待 10 秒生成广告链接...`);
+                  await delay(10000); 
 
-                  // 4. 再次获取链接并续期
+                  // 4. 再次获取服务器以拿到 renew_links
                   const upRes = await fetch("https://api.pella.app/user/servers", {
                     headers: { "Authorization": `Bearer ${token}`, "Origin": "https://www.pella.app" }
                   });
@@ -70,19 +91,37 @@ jobs:
                   let success = 0;
                   for (const link of links) {
                     const rId = link.link.split("/renew/")[1];
-                    const res = await fetch(`https://api.pella.app/server/renew?id=${rId}`, {
-                      method: "POST",
-                      headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json", "Origin": "https://www.pella.app" },
-                      body: "{}"
-                    });
-                    const d = await res.json();
-                    if (d.success) success++;
+                    try {
+                      const res = await fetch(`https://api.pella.app/server/renew?id=${rId}`, {
+                        method: "POST",
+                        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json", "Origin": "https://www.pella.app" },
+                        body: "{}"
+                      });
+                      const d = await res.json();
+                      if (d.success) success++;
+                    } catch (e) { console.error("单个续期请求出错"); }
                     await delay(2000);
                   }
-                  reports.push({ ip: s.ip, status: s.status, success, total: links.length, expiry: s.expiry });
+
+                  // 5. 获取最终状态
+                  const finalRes = await fetch("https://api.pella.app/user/servers", {
+                    headers: { "Authorization": `Bearer ${token}`, "Origin": "https://www.pella.app" }
+                  });
+                  const finalData = await finalRes.json();
+                  const finalS = finalData.servers.find(x => x.id === s.id);
+
+                  reports.push({ 
+                    ip: s.ip, 
+                    status: s.status, 
+                    success, 
+                    total: links.length, 
+                    beforeExpiry: beforeExp,
+                    afterExpiry: finalS?.expiry || beforeExp
+                  });
                 }
                 results.push({ email, servers: reports });
               } catch (e) {
+                console.error(`处理账号 ${email} 出错:`, e.message);
                 results.push({ email, error: e.message });
               }
             }
@@ -90,12 +129,17 @@ jobs:
           }
 
           async function sendTG(results) {
+            if (!process.env.TG_BOT_TOKEN) return;
             let text = "📋 <b>Pella GitHub 续期报告</b>\n\n";
             for (const r of results) {
               text += `👤 <b>${r.email}</b>\n`;
-              if (r.error) { text += `❌ ${r.error}\n\n`; continue; }
+              if (r.error) { text += `❌ 错误: ${r.error}\n\n`; continue; }
               for (const s of r.servers) {
-                text += `🖥 <code>${s.ip}</code>\n广告: ${s.success}/${s.total}\n📅 截止: ${s.expiry}\n\n`;
+                const isExtended = s.afterExpiry !== s.beforeExpiry;
+                text += `🖥 <code>${s.ip}</code>\n`;
+                text += `状态: ${s.status} | 广告: ${s.success}/${s.total}\n`;
+                text += `${isExtended ? "✅ 续期成功" : "⌛️ 期限未变"}\n`;
+                text += `📅 截止: ${s.afterExpiry}\n\n`;
               }
             }
             await fetch(`https://api.telegram.org/bot${process.env.TG_BOT_TOKEN}/sendMessage`, {
@@ -107,4 +151,4 @@ jobs:
 
           main();
           EOF
-          node renew.js
+          node renew.cjs
