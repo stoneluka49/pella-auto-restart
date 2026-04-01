@@ -1,1 +1,110 @@
+name: Pella Auto Renew
 
+on:
+  workflow_dispatch: # 支持手动触发
+  repository_dispatch: # 支持 Cloudflare Workers 远程触发
+    types: [renew_task]
+  schedule:
+    - cron: '15 */4 * * *' # 每 4 小时自动运行一次
+
+jobs:
+  renew:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Renew Script
+        shell: bash
+        env:
+          ACCOUNT: ${{ secrets.ACCOUNT }}
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        run: |
+          cat << 'EOF' > renew.js
+          const fetch = require('node-fetch');
+          const delay = (ms) => new Promise(r => setTimeout(r, ms));
+
+          async function main() {
+            const accounts = process.env.ACCOUNT.split('\n').filter(l => l.includes('-----'));
+            const results = [];
+
+            for (const line of accounts) {
+              const [email, password] = line.split('-----').map(s => s.trim());
+              try {
+                console.log(`开始处理: ${email}`);
+                // 1. 登录
+                const loginRes = await fetch("https://clerk.pella.app/v1/client/sign_ins?__clerk_api_version=2025-11-10", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/x-www-form-urlencoded", "Origin": "https://www.pella.app" },
+                  body: new URLSearchParams({ identifier: email, password, strategy: "password" })
+                });
+                const loginData = await loginRes.json();
+                const token = loginData.client.sessions[0].last_active_token.jwt;
+
+                // 2. 获取服务器
+                const serverRes = await fetch("https://api.pella.app/user/servers", {
+                  headers: { "Authorization": `Bearer ${token}`, "Origin": "https://www.pella.app" }
+                });
+                const { servers } = await serverRes.json();
+                const reports = [];
+
+                for (const s of servers) {
+                  // 3. 刷新广告 (Action 环境可以大方等待)
+                  await fetch(`https://api.pella.app/server/renew/update?id=${s.id}`, {
+                    method: "POST",
+                    headers: { "Authorization": `Bearer ${token}`, "Origin": "https://www.pella.app" },
+                    body: "{}"
+                  });
+                  console.log(`等待广告生成...`);
+                  await delay(10000); // 稳健等待 10 秒
+
+                  // 4. 再次获取链接并续期
+                  const upRes = await fetch("https://api.pella.app/user/servers", {
+                    headers: { "Authorization": `Bearer ${token}`, "Origin": "https://www.pella.app" }
+                  });
+                  const upData = await upRes.json();
+                  const currentS = upData.servers.find(x => x.id === s.id);
+                  const links = (currentS?.renew_links || []).filter(l => !l.claimed);
+                  
+                  let success = 0;
+                  for (const link of links) {
+                    const rId = link.link.split("/renew/")[1];
+                    const res = await fetch(`https://api.pella.app/server/renew?id=${rId}`, {
+                      method: "POST",
+                      headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json", "Origin": "https://www.pella.app" },
+                      body: "{}"
+                    });
+                    const d = await res.json();
+                    if (d.success) success++;
+                    await delay(2000);
+                  }
+                  reports.push({ ip: s.ip, status: s.status, success, total: links.length, expiry: s.expiry });
+                }
+                results.push({ email, servers: reports });
+              } catch (e) {
+                results.push({ email, error: e.message });
+              }
+            }
+            await sendTG(results);
+          }
+
+          async function sendTG(results) {
+            let text = "📋 <b>Pella GitHub 续期报告</b>\n\n";
+            for (const r of results) {
+              text += `👤 <b>${r.email}</b>\n`;
+              if (r.error) { text += `❌ ${r.error}\n\n`; continue; }
+              for (const s of r.servers) {
+                text += `🖥 <code>${s.ip}</code>\n广告: ${s.success}/${s.total}\n📅 截止: ${s.expiry}\n\n`;
+              }
+            }
+            await fetch(`https://api.telegram.org/bot${process.env.TG_BOT_TOKEN}/sendMessage`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ chat_id: process.env.TG_CHAT_ID, text, parse_mode: "HTML" })
+            });
+          }
+
+          main();
+          EOF
+          node renew.js
